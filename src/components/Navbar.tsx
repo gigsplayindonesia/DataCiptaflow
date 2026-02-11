@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Menu, X, LogOut, Coins, ChevronDown, Edit, Bell } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { t } from '../lib/translations';
+import { useAuth } from '../contexts/AuthContext';
 import logo from '../assets/logo.svg';
 
 interface NavbarProps {
@@ -12,6 +14,13 @@ interface NavbarProps {
 export default function Navbar({ userName, points, isAdmin = false }: NavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
 
   const userNavItems = [
     { name: t.nav.dashboard, href: '/dashboard' },
@@ -31,7 +40,6 @@ export default function Navbar({ userName, points, isAdmin = false }: NavbarProp
 
   const navItems = isAdmin ? adminNavItems : userNavItems;
 
-  // Extract initials from userName
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -108,13 +116,13 @@ export default function Navbar({ userName, points, isAdmin = false }: NavbarProp
                     <Edit className="w-4 h-4" />
                     <span className="text-sm font-medium">Edit Profil</span>
                   </a>
-                  <a
-                    href="/login"
-                    className="flex items-center space-x-3 px-4 py-2 hover:bg-gray-50 text-black transition border-t border-gray-100"
+                  <button
+                    onClick={handleSignOut}
+                    className="flex items-center space-x-3 px-4 py-2 hover:bg-gray-50 text-black transition border-t border-gray-100 w-full text-left"
                   >
                     <LogOut className="w-4 h-4" />
                     <span className="text-sm font-medium">Keluar</span>
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -151,12 +159,12 @@ export default function Navbar({ userName, points, isAdmin = false }: NavbarProp
             >
               Edit Profile
             </a>
-            <a
-              href="/login"
-              className="block px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+            <button
+              onClick={handleSignOut}
+              className="block w-full text-left px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
             >
               Logout
-            </a>
+            </button>
           </div>
         )}
       </div>

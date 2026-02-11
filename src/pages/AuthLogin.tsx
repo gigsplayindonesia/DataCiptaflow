@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail } from 'lucide-react';
 import { t } from '../lib/translations';
+import { useAuth } from '../contexts/AuthContext';
 import logo from '../assets/logo.svg';
 
 export default function AuthLogin() {
   const navigate = useNavigate();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -13,11 +15,18 @@ export default function AuthLogin() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setLoading(true);
-    // Simulate auth - will integrate with Supabase
-    setTimeout(() => {
-      navigate('/dashboard');
-    }, 1000);
+
+    const { error } = await signIn(email, password);
+
+    if (error) {
+      setError(error);
+      setLoading(false);
+      return;
+    }
+
+    navigate('/dashboard');
   };
 
   return (

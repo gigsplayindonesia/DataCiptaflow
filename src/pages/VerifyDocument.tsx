@@ -1,18 +1,41 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, CheckCircle2, XCircle } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+
+async function computeFileHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 export default function VerifyDocument() {
+  const { profile, refreshProfile } = useAuth();
+  const userName = profile?.full_name || 'User';
+  const points = profile?.points || 0;
+
   const [activeTab, setActiveTab] = useState<'file' | 'hash'>('file');
   const [file, setFile] = useState<File | null>(null);
   const [hash, setHash] = useState('');
   const [hashError, setHashError] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
-  const userName = 'Budi Santoso';
-  const points = 850;
-  const verificationCost = 10;
+  const [verificationCost, setVerificationCost] = useState(10);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'verification_cost')
+        .single();
+      if (data) setVerificationCost(parseInt(data.value));
+    };
+    fetchSettings();
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
@@ -34,43 +57,67 @@ export default function VerifyDocument() {
     return true;
   };
 
-  const handleVerifyFile = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return;
+  const verifyByHash = async (docHash: string) => {
+    if (!profile) return;
+
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setResult({
-        verified: Math.random() > 0.2,
-        documentName: file?.name || 'Document',
-        registeredBy: 'Rini Wijaya',
-        date: '2024-01-15',
-        txHash: '0x1234567890abcdef',
-        certificateId: 'CERT-20240115-ABC123',
+    try {
+      const { data: doc } = await supabase
+        .from('documents')
+        .select('*, profiles!documents_user_id_fkey(full_name)')
+        .eq('document_hash', docHash)
+        .maybeSingle();
+
+      // Deduct verification cost
+      const newBalance = points - verificationCost;
+      await supabase.from('profiles').update({ points: newBalance }).eq('id', profile.id);
+      await supabase.from('transactions').insert({
+        user_id: profile.id,
+        type: 'verification',
+        description: `Verifikasi dokumen`,
+        amount: -verificationCost,
+        balance_after: newBalance,
       });
-    }, 2000);
+      await refreshProfile();
+
+      if (doc) {
+        setResult({
+          verified: true,
+          documentName: doc.title || doc.file_name,
+          registeredBy: doc.profiles?.full_name || 'Unknown',
+          date: new Date(doc.registered_at).toLocaleDateString('id-ID'),
+          txHash: doc.tx_hash,
+          certificateId: doc.certificate_id,
+          hash: doc.document_hash,
+        });
+      } else {
+        setResult({
+          verified: false,
+          hash: docHash,
+        });
+      }
+    } catch (error) {
+      console.error('Verification error:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyHash = (e: React.FormEvent) => {
+  const handleVerifyFile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) return;
+    const fileHash = await computeFileHash(file);
+    await verifyByHash(fileHash);
+  };
+
+  const handleVerifyHash = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateHash(hash)) return;
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setResult({
-        verified: Math.random() > 0.2,
-        documentName: 'Document from Hash',
-        registeredBy: 'Rini Wijaya',
-        date: '2024-01-15',
-        txHash: '0x1234567890abcdef',
-        certificateId: 'CERT-20240115-ABC123',
-        hash: hash,
-      });
-    }, 2000);
+    await verifyByHash(hash.trim());
   };
 
   return (
-    <ProtectedLayout userName={userName} points={points}>
+    <ProtectedLayout userName={userName} points={profile?.points || 0}>
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-black mb-2">{t.documents.verifyDocument}</h1>
@@ -80,7 +127,7 @@ export default function VerifyDocument() {
         <div className="bg-white border border-gray-200 rounded-xl p-8">
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 mb-6">
             <p className="text-black text-sm">
-              <strong>Biaya Verifikasi:</strong> {verificationCost} poin | <strong>Saldo Anda:</strong> {points} poin
+              <strong>Biaya Verifikasi:</strong> {verificationCost} poin | <strong>Saldo Anda:</strong> {profile?.points || 0} poin
             </p>
           </div>
 
@@ -119,7 +166,7 @@ export default function VerifyDocument() {
             <form onSubmit={handleVerifyFile}>
               <div className="mb-8">
                 <label className="block text-sm font-semibold text-black mb-4">
-                  Pilih Dokumen <span className="text-gray-600 font-normal">(semua jenis file)</span>
+                  {'Pilih Dokumen '}<span className="text-gray-600 font-normal">(semua jenis file)</span>
                 </label>
                 <div
                   onDrop={(e) => {
@@ -149,7 +196,7 @@ export default function VerifyDocument() {
 
               <button
                 type="submit"
-                disabled={!file || loading || points < verificationCost}
+                disabled={!file || loading || (profile?.points || 0) < verificationCost}
                 className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white font-semibold py-4 px-6 rounded-lg transition"
               >
                 {loading ? 'Memverifikasi...' : `Verifikasi Dokumen (${verificationCost} poin)`}
@@ -161,7 +208,7 @@ export default function VerifyDocument() {
             <form onSubmit={handleVerifyHash}>
               <div className="mb-6">
                 <label className="block text-sm font-semibold text-black mb-4">
-                  #Masukan Hash Dokumen
+                  {'#Masukan Hash Dokumen'}
                 </label>
                 <input
                   type="text"
@@ -187,7 +234,7 @@ export default function VerifyDocument() {
 
               <button
                 type="submit"
-                disabled={!hash || loading || points < verificationCost}
+                disabled={!hash || loading || (profile?.points || 0) < verificationCost}
                 className="w-full bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white font-semibold py-4 px-6 rounded-lg transition"
               >
                 {loading ? 'Memverifikasi...' : `Verifikasi Dokumen (${verificationCost} poin)`}

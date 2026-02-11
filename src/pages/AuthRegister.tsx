@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, User } from 'lucide-react';
+import { Lock, Mail } from 'lucide-react';
 import { t } from '../lib/translations';
+import { useAuth } from '../contexts/AuthContext';
 import logo from '../assets/logo.svg';
 
 export default function AuthRegister() {
   const navigate = useNavigate();
+  const { signUp } = useAuth();
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -13,6 +15,7 @@ export default function AuthRegister() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,11 +32,38 @@ export default function AuthRegister() {
     }
 
     setLoading(true);
-    // Simulate auth - will integrate with Supabase
-    setTimeout(() => {
-      navigate('/login');
-    }, 1000);
+
+    const { error } = await signUp(email, password, fullName, username);
+
+    if (error) {
+      setError(error);
+      setLoading(false);
+      return;
+    }
+
+    setSuccess(true);
+    setLoading(false);
   };
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center px-8">
+        <div className="max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-black rounded-full flex items-center justify-center mx-auto mb-6">
+            <span className="text-white text-2xl font-bold">&#10003;</span>
+          </div>
+          <h2 className="text-3xl font-bold text-black mb-2">{t.auth.accountCreated}</h2>
+          <p className="text-gray-600 mb-8">Silakan cek email Anda untuk konfirmasi akun, lalu masuk.</p>
+          <a
+            href="/login"
+            className="inline-block bg-black hover:bg-gray-900 text-white font-semibold py-3 px-8 rounded-lg transition"
+          >
+            {t.auth.signInNow}
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white flex">

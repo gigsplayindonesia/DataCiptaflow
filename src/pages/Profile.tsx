@@ -2,24 +2,46 @@ import { useState } from 'react';
 import { Save } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Profile() {
-  const userName = 'Budi Santoso';
-  const points = 850;
-  const [fullName, setFullName] = useState('Budi Santoso');
-  const [username, setUsername] = useState('budisantoso');
-  const [email, setEmail] = useState('budi@example.com');
+  const { profile, refreshProfile } = useAuth();
+  const userName = profile?.full_name || 'User';
+  const points = profile?.points || 0;
+
+  const [fullName, setFullName] = useState(profile?.full_name || '');
+  const [username, setUsername] = useState(profile?.username || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!profile) return;
+
     setSaving(true);
-    setTimeout(() => {
+    setError('');
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        full_name: fullName,
+        username: username,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', profile.id);
+
+    if (updateError) {
+      setError(updateError.message);
       setSaving(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    }, 1000);
+      return;
+    }
+
+    await refreshProfile();
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
   };
 
   return (
@@ -37,6 +59,12 @@ export default function Profile() {
             </div>
           )}
 
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-semibold text-black mb-3">
@@ -44,7 +72,7 @@ export default function Profile() {
               </label>
               <input
                 type="email"
-                value={email}
+                value={profile?.email || ''}
                 disabled
                 className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-600 cursor-not-allowed"
               />
@@ -92,7 +120,7 @@ export default function Profile() {
             <div className="space-y-3">
               <div className="flex justify-between">
                 <span className="text-gray-600">{t.profile.accountType}</span>
-                <span className="font-semibold text-black">Pengguna</span>
+                <span className="font-semibold text-black">{profile?.role === 'admin' ? 'Administrator' : 'Pengguna'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">{t.profile.pointsBalance}</span>
@@ -100,7 +128,9 @@ export default function Profile() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">{t.profile.memberSince}</span>
-                <span className="font-semibold text-black">15 Januari 2024</span>
+                <span className="font-semibold text-black">
+                  {profile?.created_at ? new Date(profile.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}
+                </span>
               </div>
             </div>
           </div>

@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Zap, Check } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function TopUp() {
-  const userName = 'Budi Santoso';
-  const currentPoints = 850;
-  const pointPrice = 1000;
+  const { profile, refreshProfile } = useAuth();
+  const userName = profile?.full_name || 'User';
+  const currentPoints = profile?.points || 0;
+
+  const [pointPrice, setPointPrice] = useState(1000);
+  const [processing, setProcessing] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const quickOptions = [
     { points: 25, price: 25000 },
@@ -20,6 +26,19 @@ export default function TopUp() {
   const [manualPoints, setManualPoints] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null);
+  const [couponError, setCouponError] = useState('');
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'point_price')
+        .single();
+      if (data) setPointPrice(parseInt(data.value));
+    };
+    fetchSettings();
+  }, []);
 
   const finalPoints = selectedPoints || (manualPoints ? parseInt(manualPoints) : 0);
   const subtotal = finalPoints * pointPrice;
@@ -37,12 +56,90 @@ export default function TopUp() {
     setSelectedPoints(null);
   };
 
-  const handleApplyCoupon = () => {
-    if (couponCode.trim()) {
-      setAppliedCoupon({
-        code: couponCode,
-        discount: 10,
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponError('');
+
+    const { data } = await supabase
+      .from('coupons')
+      .select('*')
+      .eq('code', couponCode.trim().toUpperCase())
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (!data) {
+      setCouponError('Kupon tidak valid atau sudah kadaluarsa');
+      setAppliedCoupon(null);
+      return;
+    }
+
+    if (data.max_uses > 0 && data.used_count >= data.max_uses) {
+      setCouponError('Kupon sudah habis digunakan');
+      setAppliedCoupon(null);
+      return;
+    }
+
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
+      setCouponError('Kupon sudah kadaluarsa');
+      setAppliedCoupon(null);
+      return;
+    }
+
+    setAppliedCoupon({
+      code: data.code,
+      discount: data.discount_percent,
+    });
+  };
+
+  const handlePayment = async () => {
+    if (!profile || !finalPoints || finalPoints < 25) return;
+
+    setProcessing(true);
+    try {
+      const newBalance = currentPoints + finalPoints;
+
+      await supabase.from('profiles').update({ points: newBalance }).eq('id', profile.id);
+
+      await supabase.from('transactions').insert({
+        user_id: profile.id,
+        type: 'topup',
+        description: `Top-up ${finalPoints} poin`,
+        amount: finalPoints,
+        balance_after: newBalance,
       });
+
+      // Update coupon usage if applicable
+      if (appliedCoupon) {
+        await supabase
+          .from('coupons')
+          .update({ used_count: supabase.rpc ? undefined : 0 })
+          .eq('code', appliedCoupon.code);
+
+        // Increment used_count
+        const { data: couponData } = await supabase
+          .from('coupons')
+          .select('used_count')
+          .eq('code', appliedCoupon.code)
+          .single();
+
+        if (couponData) {
+          await supabase
+            .from('coupons')
+            .update({ used_count: couponData.used_count + 1 })
+            .eq('code', appliedCoupon.code);
+        }
+      }
+
+      await refreshProfile();
+      setSuccessMessage(`Berhasil menambahkan ${finalPoints} poin! Saldo baru Anda: ${newBalance} poin`);
+      setSelectedPoints(null);
+      setManualPoints('');
+      setCouponCode('');
+      setAppliedCoupon(null);
+    } catch (error) {
+      console.error('Top-up error:', error);
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -57,18 +154,24 @@ export default function TopUp() {
   const isValidPoints = finalPoints >= 25;
 
   return (
-    <ProtectedLayout userName={userName} points={currentPoints}>
+    <ProtectedLayout userName={userName} points={profile?.points || 0}>
       <div className="space-y-6 max-w-4xl">
         <div>
           <h1 className="text-4xl font-bold text-black mb-2">Top-up Poin</h1>
           <p className="text-gray-600">Tambah saldo poin Anda untuk menggunakan fitur DataCipta</p>
         </div>
 
+        {successMessage && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <p className="text-green-700 text-sm">{successMessage}</p>
+          </div>
+        )}
+
         <div className="bg-white border border-gray-200 rounded-xl p-8 space-y-8">
           {/* Current Balance Info */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
             <p className="text-sm text-gray-700">
-              <span className="font-semibold">Saldo Poin Saat ini:</span> {currentPoints} poin |
+              <span className="font-semibold">Saldo Poin Saat ini:</span> {profile?.points || 0} poin |
               <span className="font-semibold"> Harga Poin:</span> Rp. {pointPrice.toLocaleString('id-ID')}/poin
             </p>
           </div>
@@ -129,7 +232,7 @@ export default function TopUp() {
               <input
                 type="text"
                 value={couponCode}
-                onChange={(e) => setCouponCode(e.target.value)}
+                onChange={(e) => { setCouponCode(e.target.value); setCouponError(''); }}
                 placeholder="Masukan kode kupon"
                 className="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:border-black"
               />
@@ -142,8 +245,11 @@ export default function TopUp() {
                 <span>Apply</span>
               </button>
             </div>
+            {couponError && (
+              <p className="text-xs text-red-600 mt-2">{couponError}</p>
+            )}
             {appliedCoupon && (
-              <p className="text-xs text-green-600 mt-2">Kupon "{appliedCoupon.code}" berhasil diterapkan</p>
+              <p className="text-xs text-green-600 mt-2">Kupon &quot;{appliedCoupon.code}&quot; berhasil diterapkan ({appliedCoupon.discount}% diskon)</p>
             )}
           </div>
 
@@ -171,11 +277,11 @@ export default function TopUp() {
 
           {/* Payment Button */}
           <button
-            disabled={!isValidPoints}
+            onClick={handlePayment}
+            disabled={!isValidPoints || processing}
             className="w-full py-4 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
           >
-            <span>🚀</span>
-            <span>Bayar Sekarang</span>
+            <span>{processing ? 'Memproses...' : 'Bayar Sekarang'}</span>
           </button>
         </div>
       </div>

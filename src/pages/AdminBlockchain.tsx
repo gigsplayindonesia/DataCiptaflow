@@ -1,48 +1,54 @@
+import { useState, useEffect } from 'react';
 import { Activity, Zap, CheckCircle2 } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AdminBlockchain() {
-  const userName = 'Admin';
-  const points = 5000;
+  const { profile } = useAuth();
+  const userName = profile?.full_name || 'Admin';
+  const points = profile?.points || 0;
   const isAdmin = true;
+
+  const [recentDocs, setRecentDocs] = useState<any[]>([]);
+  const [totalDocs24h, setTotalDocs24h] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const { data: docs } = await supabase
+          .from('documents')
+          .select('*, profiles!documents_user_id_fkey(full_name)')
+          .order('registered_at', { ascending: false })
+          .limit(10);
+
+        if (docs) setRecentDocs(docs);
+
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count } = await supabase
+          .from('documents')
+          .select('*', { count: 'exact', head: true })
+          .gte('registered_at', yesterday);
+        if (count !== null) setTotalDocs24h(count);
+      } catch (error) {
+        console.error('Error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const blockchainStatus = {
     network: 'Polygon Mumbai Testnet',
     latestBlock: 42156789,
     gasPrice: '35.42',
     isHealthy: true,
-    lastCheck: '2024-01-15 15:30:45',
+    lastCheck: new Date().toLocaleString('id-ID'),
     avgBlockTime: '2.5s',
-    transactions24h: 125430,
   };
-
-  const recentTransactions = [
-    {
-      id: 1,
-      hash: '0x123abc456def789',
-      documentName: 'Proposal.pdf',
-      user: 'Budi Santoso',
-      timestamp: '15 Januari 2024, 15:20',
-      status: 'confirmed',
-    },
-    {
-      id: 2,
-      hash: '0x456def789abc123',
-      documentName: 'Logo.png',
-      user: 'Rini Wijaya',
-      timestamp: '15 Januari 2024, 14:15',
-      status: 'confirmed',
-    },
-    {
-      id: 3,
-      hash: '0x789abc123def456',
-      documentName: 'Artikel.docx',
-      user: 'Ahmad Hidayat',
-      timestamp: '15 Januari 2024, 13:45',
-      status: 'confirmed',
-    },
-  ];
 
   return (
     <ProtectedLayout userName={userName} points={points} isAdmin={isAdmin}>
@@ -88,8 +94,8 @@ export default function AdminBlockchain() {
                 <p className="font-semibold text-black">{blockchainStatus.lastCheck}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Transaksi 24 Jam</p>
-                <p className="font-semibold text-black text-lg">{blockchainStatus.transactions24h.toLocaleString()}</p>
+                <p className="text-sm text-gray-600">Pendaftaran 24 Jam</p>
+                <p className="font-semibold text-black text-lg">{loading ? '...' : totalDocs24h}</p>
               </div>
             </div>
           </div>
@@ -98,34 +104,42 @@ export default function AdminBlockchain() {
         {/* Recent Registrations */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <h2 className="text-xl font-bold text-black mb-6">Pendaftaran Dokumen Terbaru</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Hash Transaksi</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Dokumen</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Pengguna</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Waktu</th>
-                  <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {recentTransactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-gray-50 transition">
-                    <td className="px-4 py-4 text-sm font-mono text-gray-600">{tx.hash.substring(0, 12)}...</td>
-                    <td className="px-4 py-4 text-sm text-black font-medium">{tx.documentName}</td>
-                    <td className="px-4 py-4 text-sm text-gray-600">{tx.user}</td>
-                    <td className="px-4 py-4 text-sm text-gray-600">{tx.timestamp}</td>
-                    <td className="px-4 py-4 text-sm">
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
-                        ✓ Dikonfirmasi
-                      </span>
-                    </td>
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            </div>
+          ) : recentDocs.length === 0 ? (
+            <p className="text-center text-gray-600 py-8">Belum ada pendaftaran dokumen</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Hash Transaksi</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Dokumen</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Pengguna</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Waktu</th>
+                    <th className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {recentDocs.map((doc) => (
+                    <tr key={doc.id} className="hover:bg-gray-50 transition">
+                      <td className="px-4 py-4 text-sm font-mono text-gray-600">{doc.tx_hash ? doc.tx_hash.substring(0, 12) + '...' : '-'}</td>
+                      <td className="px-4 py-4 text-sm text-black font-medium">{doc.title || doc.file_name}</td>
+                      <td className="px-4 py-4 text-sm text-gray-600">{doc.profiles?.full_name || '-'}</td>
+                      <td className="px-4 py-4 text-sm text-gray-600">{new Date(doc.registered_at).toLocaleString('id-ID')}</td>
+                      <td className="px-4 py-4 text-sm">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
+                          Dikonfirmasi
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Network Metrics */}

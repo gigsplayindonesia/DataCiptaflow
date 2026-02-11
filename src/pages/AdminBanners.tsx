@@ -1,16 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Upload, Trash2, Edit2, Save, X, Plus, GripVertical } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AdminBanners() {
-  const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL || '',
-    import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-  );
-
-  const userName = 'Admin User';
-  const points = 0;
+  const { profile } = useAuth();
+  const userName = profile?.full_name || 'Admin';
+  const points = profile?.points || 0;
 
   // Static Banner State
   const [staticBanner, setStaticBanner] = useState<any>(null);

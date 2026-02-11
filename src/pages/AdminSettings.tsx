@@ -1,35 +1,83 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AdminSettings() {
-  const userName = 'Admin';
-  const points = 5000;
+  const { profile } = useAuth();
+  const userName = profile?.full_name || 'Admin';
+  const points = profile?.points || 0;
   const isAdmin = true;
 
   const [settings, setSettings] = useState({
-    platformName: 'Registri Hak Cipta Polygon',
-    registrationBonus: '1000',
-    documentRegistrationCost: '100',
-    maxFileSize: '50',
+    platform_name: '',
+    registration_bonus: '',
+    document_registration_cost: '',
+    max_file_size: '',
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('key, value');
+
+      if (data) {
+        const map: Record<string, string> = {};
+        data.forEach((s: any) => { map[s.key] = s.value; });
+        setSettings({
+          platform_name: map.platform_name || 'Registri Hak Cipta Polygon',
+          registration_bonus: map.registration_bonus || '1000',
+          document_registration_cost: map.document_registration_cost || '100',
+          max_file_size: map.max_file_size || '50',
+        });
+      }
+      setLoading(false);
+    };
+    fetchSettings();
+  }, []);
 
   const handleChange = (key: string, value: string) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+
+    try {
+      const updates = Object.entries(settings).map(([key, value]) =>
+        supabase
+          .from('system_settings')
+          .update({ value, updated_at: new Date().toISOString() })
+          .eq('key', key)
+      );
+
+      await Promise.all(updates);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    }, 1000);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <ProtectedLayout userName={userName} points={points} isAdmin={isAdmin}>
+        <div className="text-center py-12">
+          <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 text-sm">Memuat pengaturan...</p>
+        </div>
+      </ProtectedLayout>
+    );
+  }
 
   return (
     <ProtectedLayout userName={userName} points={points} isAdmin={isAdmin}>
@@ -53,8 +101,8 @@ export default function AdminSettings() {
               </label>
               <input
                 type="text"
-                value={settings.platformName}
-                onChange={(e) => handleChange('platformName', e.target.value)}
+                value={settings.platform_name}
+                onChange={(e) => handleChange('platform_name', e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
               />
             </div>
@@ -66,8 +114,8 @@ export default function AdminSettings() {
                 </label>
                 <input
                   type="number"
-                  value={settings.registrationBonus}
-                  onChange={(e) => handleChange('registrationBonus', e.target.value)}
+                  value={settings.registration_bonus}
+                  onChange={(e) => handleChange('registration_bonus', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
                 />
               </div>
@@ -77,8 +125,8 @@ export default function AdminSettings() {
                 </label>
                 <input
                   type="number"
-                  value={settings.documentRegistrationCost}
-                  onChange={(e) => handleChange('documentRegistrationCost', e.target.value)}
+                  value={settings.document_registration_cost}
+                  onChange={(e) => handleChange('document_registration_cost', e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
                 />
               </div>
@@ -90,8 +138,8 @@ export default function AdminSettings() {
               </label>
               <input
                 type="number"
-                value={settings.maxFileSize}
-                onChange={(e) => handleChange('maxFileSize', e.target.value)}
+                value={settings.max_file_size}
+                onChange={(e) => handleChange('max_file_size', e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
               />
             </div>

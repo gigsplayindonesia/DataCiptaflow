@@ -1,9 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, CheckCircle2, Plus, X } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+
+async function computeFileHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 export default function RegisterDocument() {
+  const { profile, refreshProfile } = useAuth();
+  const userName = profile?.full_name || 'User';
+  const points = profile?.points || 0;
+
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -12,9 +25,20 @@ export default function RegisterDocument() {
   const [coCreators, setCoCreators] = useState<string[]>(['']);
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const userName = 'Budi Santoso';
-  const points = 850;
-  const registrationCost = 100;
+  const [registrationCost, setRegistrationCost] = useState(100);
+  const [resultCertId, setResultCertId] = useState('');
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'document_registration_cost')
+        .single();
+      if (data) setRegistrationCost(parseInt(data.value));
+    };
+    fetchSettings();
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
@@ -48,26 +72,107 @@ export default function RegisterDocument() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) {
+    if (!validateForm() || !file || !profile) return;
+
+    if (points < registrationCost) {
+      setErrors({ general: t.documents.insufficientPoints });
       return;
     }
+
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+
+    try {
+      // 1. Compute document hash
+      const documentHash = await computeFileHash(file);
+
+      // 2. Check if document already registered
+      const { data: existing } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('document_hash', documentHash)
+        .maybeSingle();
+
+      if (existing) {
+        setErrors({ general: t.documents.documentAlreadyRegistered });
+        setLoading(false);
+        return;
+      }
+
+      // 3. Generate certificate ID
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const certId = `CERT-${dateStr}-${randomStr}`;
+
+      // 4. Simulate blockchain tx hash and block number
+      const txHash = '0x' + documentHash.substring(0, 40);
+      const blockNumber = String(Math.floor(40000000 + Math.random() * 5000000));
+
+      // 5. Insert document record
+      const filteredCoCreators = coCreators.filter(c => c.trim() !== '');
+      const { error: docError } = await supabase.from('documents').insert({
+        user_id: profile.id,
+        title: documentTitle,
+        file_name: file.name,
+        file_type: file.type || 'application/octet-stream',
+        file_size: formatFileSize(file.size),
+        creator: creator,
+        co_creators: filteredCoCreators,
+        additional_info: additionalInfo || null,
+        document_hash: documentHash,
+        tx_hash: txHash,
+        block_number: blockNumber,
+        certificate_id: certId,
+        status: 'verified',
+      });
+
+      if (docError) throw docError;
+
+      // 6. Deduct points
+      const newBalance = points - registrationCost;
+      await supabase
+        .from('profiles')
+        .update({ points: newBalance })
+        .eq('id', profile.id);
+
+      // 7. Record transaction
+      await supabase.from('transactions').insert({
+        user_id: profile.id,
+        type: 'document',
+        description: `Pendaftaran dokumen: ${documentTitle}`,
+        amount: -registrationCost,
+        balance_after: newBalance,
+      });
+
+      // 8. Refresh profile to update points
+      await refreshProfile();
+
+      setResultCertId(certId);
       setSuccess(true);
       setFile(null);
       setDocumentTitle('');
       setCreator('');
       setCoCreators(['']);
       setAdditionalInfo('');
-    }, 2000);
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      setErrors({ general: error.message || 'Terjadi kesalahan saat mendaftarkan dokumen' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (success) {
     return (
-      <ProtectedLayout userName={userName} points={points}>
+      <ProtectedLayout userName={userName} points={profile?.points || 0}>
         <div className="max-w-2xl mx-auto">
           <div className="text-center py-12">
             <CheckCircle2 className="w-16 h-16 text-black mx-auto mb-4" />
@@ -77,11 +182,11 @@ export default function RegisterDocument() {
             </p>
             <div className="bg-gray-50 rounded-lg p-6 mb-8 border border-gray-200">
               <p className="text-sm text-gray-600 mb-2">Certificate ID</p>
-              <p className="font-mono text-lg text-black">CERT-20240115-ABC123DEF</p>
+              <p className="font-mono text-lg text-black">{resultCertId}</p>
             </div>
             <div className="flex gap-4 justify-center">
               <a
-                href="/certificate/CERT-20240115-ABC123DEF"
+                href={`/certificate/${resultCertId}`}
                 className="bg-black hover:bg-gray-900 text-white font-semibold py-3 px-6 rounded-lg transition"
               >
                 {t.documents.viewCertificate}
@@ -117,6 +222,12 @@ export default function RegisterDocument() {
             </p>
           </div>
 
+          {errors.general && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <p className="text-red-600 text-sm">{errors.general}</p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}>
             <div className="mb-8">
               <label className="block text-sm font-semibold text-black mb-4">
@@ -150,7 +261,7 @@ export default function RegisterDocument() {
 
             <div className="mb-6">
               <label className="block text-sm font-semibold text-black mb-2">
-                Judul Dokumen<span className="text-red-500">*</span>
+                {'Judul Dokumen'}<span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -174,7 +285,7 @@ export default function RegisterDocument() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
                 <label className="block text-sm font-semibold text-black mb-2">
-                  Creator<span className="text-red-500">*</span>
+                  {'Creator'}<span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -197,7 +308,7 @@ export default function RegisterDocument() {
 
               <div>
                 <label className="block text-sm font-semibold text-black mb-2">
-                  Co-Creator <span className="text-gray-500 text-xs font-normal">(opsional)</span>
+                  {'Co-Creator '}<span className="text-gray-500 text-xs font-normal">(opsional)</span>
                 </label>
                 <input
                   type="text"
@@ -239,13 +350,13 @@ export default function RegisterDocument() {
                 className="flex items-center gap-2 text-sm font-semibold text-black hover:bg-gray-100 px-3 py-2 rounded-lg transition"
               >
                 <Plus className="w-4 h-4" />
-                tambah Co-Creator
+                {'tambah Co-Creator'}
               </button>
             </div>
 
             <div className="mb-6">
               <label className="block text-sm font-semibold text-black mb-2">
-                Informasi Lain <span className="text-gray-500 text-xs font-normal">(opsional)</span>
+                {'Informasi Lain '}<span className="text-gray-500 text-xs font-normal">(opsional)</span>
               </label>
               <textarea
                 value={additionalInfo}

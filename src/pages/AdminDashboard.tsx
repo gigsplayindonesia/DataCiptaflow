@@ -1,23 +1,62 @@
+import { useState, useEffect } from 'react';
 import { Users, FileText, Coins, Activity } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function AdminDashboard() {
-  const userName = 'Admin';
-  const points = 5000;
+  const { profile } = useAuth();
+  const userName = profile?.full_name || 'Admin';
+  const points = profile?.points || 0;
   const isAdmin = true;
 
-  const stats = [
-    { label: t.admin.totalUsers, value: '1,245', icon: Users },
-    { label: t.admin.totalDocuments, value: '8,962', icon: FileText },
-    { label: t.admin.totalPointsInCirculation, value: '2.4M', icon: Coins },
-    { label: 'Transaksi Hari Ini', value: '348', icon: Activity },
-  ];
+  const [totalUsers, setTotalUsers] = useState(0);
+  const [totalDocuments, setTotalDocuments] = useState(0);
+  const [totalPoints, setTotalPoints] = useState(0);
+  const [todayTx, setTodayTx] = useState(0);
+  const [recentUsers, setRecentUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const recentUsers = [
-    { id: 1, name: 'Budi Santoso', email: 'budi@example.com', joined: '2024-01-15', status: 'active' },
-    { id: 2, name: 'Rini Wijaya', email: 'rini@example.com', joined: '2024-01-14', status: 'active' },
-    { id: 3, name: 'Ahmad Hidayat', email: 'ahmad@example.com', joined: '2024-01-13', status: 'active' },
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const [usersRes, docsRes, profilesRes, recentUsersRes] = await Promise.all([
+          supabase.from('profiles').select('*', { count: 'exact', head: true }),
+          supabase.from('documents').select('*', { count: 'exact', head: true }),
+          supabase.from('profiles').select('points'),
+          supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(5),
+        ]);
+
+        if (usersRes.count !== null) setTotalUsers(usersRes.count);
+        if (docsRes.count !== null) setTotalDocuments(docsRes.count);
+        if (profilesRes.data) {
+          const sum = profilesRes.data.reduce((acc: number, p: any) => acc + (p.points || 0), 0);
+          setTotalPoints(sum);
+        }
+        if (recentUsersRes.data) setRecentUsers(recentUsersRes.data);
+
+        // Today's transactions
+        const today = new Date().toISOString().split('T')[0];
+        const { count: txCount } = await supabase
+          .from('transactions')
+          .select('*', { count: 'exact', head: true })
+          .gte('created_at', today);
+        if (txCount !== null) setTodayTx(txCount);
+      } catch (error) {
+        console.error('Error fetching admin stats:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  const stats = [
+    { label: t.admin.totalUsers, value: totalUsers.toLocaleString(), icon: Users },
+    { label: t.admin.totalDocuments, value: totalDocuments.toLocaleString(), icon: FileText },
+    { label: t.admin.totalPointsInCirculation, value: totalPoints.toLocaleString(), icon: Coins },
+    { label: 'Transaksi Hari Ini', value: todayTx.toLocaleString(), icon: Activity },
   ];
 
   return (
@@ -39,7 +78,7 @@ export default function AdminDashboard() {
                   <Icon className="w-8 h-8 text-black" />
                 </div>
                 <p className="text-gray-600 text-sm mb-1">{stat.label}</p>
-                <p className="text-3xl font-bold text-black">{stat.value}</p>
+                <p className="text-3xl font-bold text-black">{loading ? '...' : stat.value}</p>
               </div>
             );
           })}
@@ -62,12 +101,14 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-gray-200">
                 {recentUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 transition">
-                    <td className="px-4 py-4 text-sm font-medium text-black">{user.name}</td>
+                    <td className="px-4 py-4 text-sm font-medium text-black">{user.full_name || '-'}</td>
                     <td className="px-4 py-4 text-sm text-gray-600">{user.email}</td>
-                    <td className="px-4 py-4 text-sm text-gray-600">{user.joined}</td>
+                    <td className="px-4 py-4 text-sm text-gray-600">{new Date(user.created_at).toLocaleDateString('id-ID')}</td>
                     <td className="px-4 py-4 text-sm">
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700">
-                        Aktif
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
+                        user.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {user.status === 'active' ? 'Aktif' : 'Tidak Aktif'}
                       </span>
                     </td>
                     <td className="px-4 py-4 text-sm">

@@ -2,23 +2,25 @@ import { useState, useEffect } from 'react';
 import { FileText, Layers, CheckCircle2, Award, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import ProtectedLayout from '../components/ProtectedLayout';
 import { t } from '../lib/translations';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Dashboard() {
-  const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL || '',
-    import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-  );
-
-  // Dummy data
-  const userName = 'Budi Santoso';
-  const points = 850;
+  const { profile } = useAuth();
+  const userName = profile?.full_name || 'User';
+  const points = profile?.points || 0;
 
   // Banner state
   const [staticBanner, setStaticBanner] = useState<any>(null);
   const [dynamicBanners, setDynamicBanners] = useState<any[]>([]);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // Real data state
+  const [docCount, setDocCount] = useState(0);
+  const [verifyCount, setVerifyCount] = useState(0);
+  const [recentDocuments, setRecentDocuments] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
   // Auto-advance slides every 5 seconds
   useEffect(() => {
@@ -31,26 +33,44 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [dynamicBanners.length]);
 
-  // Fetch banners from database
+  // Fetch all dashboard data
   useEffect(() => {
-    const fetchBanners = async () => {
+    const fetchData = async () => {
+      if (!profile) return;
       try {
-        const [staticRes, dynamicRes] = await Promise.all([
+        const [staticRes, dynamicRes, docsRes, txRes] = await Promise.all([
           supabase.from('banners_static').select('*').eq('is_active', true).maybeSingle(),
           supabase.from('banners_dynamic').select('*').eq('is_active', true).order('display_order', { ascending: true }),
+          supabase.from('documents').select('*').eq('user_id', profile.id).order('registered_at', { ascending: false }).limit(3),
+          supabase.from('transactions').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
         ]);
 
         if (staticRes.data) setStaticBanner(staticRes.data);
         if (dynamicRes.data) setDynamicBanners(dynamicRes.data);
+        if (docsRes.data) {
+          setRecentDocuments(docsRes.data);
+          setDocCount(docsRes.data.length);
+          // Count verified docs
+          const verified = docsRes.data.filter((d: any) => d.status === 'verified');
+          setVerifyCount(verified.length);
+        }
+        if (txRes.data) setRecentActivity(txRes.data);
+
+        // Get total doc count
+        const { count } = await supabase
+          .from('documents')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', profile.id);
+        if (count !== null) setDocCount(count);
       } catch (error) {
-        console.error('Error fetching banners:', error);
+        console.error('Error fetching dashboard data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchBanners();
-  }, []);
+    fetchData();
+  }, [profile]);
 
   const handleBannerClick = (url: string, behavior: string) => {
     if (url && url !== '#') {
@@ -71,40 +91,10 @@ export default function Dashboard() {
   };
 
   const stats = [
-    { label: 'Total Dokumen Terdaftar', value: '100', icon: FileText, color: 'text-black' },
-    { label: 'Saldo Saat Ini', value: '200', icon: Layers, color: 'text-black' },
-    { label: 'Verifikasi Dokumen', value: '20', icon: CheckCircle2, color: 'text-black' },
-    { label: 'Sertifikat', value: '100', icon: Award, color: 'text-black' },
-  ];
-
-  const recentDocuments = [
-    {
-      id: 1,
-      name: 'Proposal Bisnis Q4.pdf',
-      date: '2024-01-15',
-      hash: 'a1b2c3d4...e5f6g7h8',
-      status: 'verified',
-    },
-    {
-      id: 2,
-      name: 'Desain Logo Terbaru.png',
-      date: '2024-01-14',
-      hash: 'x9y8z7w6...v5u4t3s2',
-      status: 'verified',
-    },
-    {
-      id: 3,
-      name: 'Artikel Teknologi.docx',
-      date: '2024-01-13',
-      hash: 'm1n2o3p4...q5r6s7t8',
-      status: 'verified',
-    },
-  ];
-
-  const recentActivity = [
-    { id: 1, type: 'registration', desc: 'Bonus pendaftaran', amount: '+1000', date: '2024-01-01' },
-    { id: 2, type: 'document', desc: 'Pendaftaran dokumen', amount: '-100', date: '2024-01-10' },
-    { id: 3, type: 'document', desc: 'Pendaftaran dokumen', amount: '-100', date: '2024-01-12' },
+    { label: 'Total Dokumen Terdaftar', value: String(docCount), icon: FileText, color: 'text-black' },
+    { label: 'Saldo Saat Ini', value: String(points), icon: Layers, color: 'text-black' },
+    { label: 'Verifikasi Dokumen', value: String(verifyCount), icon: CheckCircle2, color: 'text-black' },
+    { label: 'Sertifikat', value: String(docCount), icon: Award, color: 'text-black' },
   ];
 
   return (
@@ -213,20 +203,22 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3">
-              {recentDocuments.map((doc) => (
+              {recentDocuments.length > 0 ? recentDocuments.map((doc) => (
                 <div key={doc.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
                   <div className="flex items-start justify-between mb-2">
                     <div>
-                      <h3 className="font-medium text-black">{doc.name}</h3>
-                      <p className="text-xs text-gray-600 font-mono mt-1">{doc.hash}</p>
+                      <h3 className="font-medium text-black">{doc.title || doc.file_name}</h3>
+                      <p className="text-xs text-gray-600 font-mono mt-1">{doc.document_hash ? doc.document_hash.substring(0, 24) + '...' : '-'}</p>
                     </div>
                     <span className="px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded">
-                      ✓ Terverifikasi
+                      {doc.status === 'verified' ? 'Terverifikasi' : 'Pending'}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600">{doc.date}</p>
+                  <p className="text-xs text-gray-600">{new Date(doc.registered_at).toLocaleDateString('id-ID')}</p>
                 </div>
-              ))}
+              )) : (
+                <p className="text-gray-500 text-sm text-center py-4">{t.dashboard.noDocuments}</p>
+              )}
             </div>
           </div>
 
@@ -241,17 +233,19 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3">
-              {recentActivity.map((activity) => (
+              {recentActivity.length > 0 ? recentActivity.map((activity) => (
                 <div key={activity.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
                   <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-medium text-black">{activity.desc}</h3>
-                    <span className={`font-bold ${activity.amount.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
-                      {activity.amount}
+                    <h3 className="font-medium text-black">{activity.description}</h3>
+                    <span className={`font-bold ${activity.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {activity.amount > 0 ? '+' : ''}{activity.amount}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-600">{activity.date}</p>
+                  <p className="text-xs text-gray-600">{new Date(activity.created_at).toLocaleDateString('id-ID')}</p>
                 </div>
-              ))}
+              )) : (
+                <p className="text-gray-500 text-sm text-center py-4">{t.dashboard.noActivity}</p>
+              )}
             </div>
           </div>
         </div>

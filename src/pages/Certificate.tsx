@@ -1,26 +1,74 @@
+import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Download, ExternalLink } from 'lucide-react';
 import { t } from '../lib/translations';
+import { supabase } from '../lib/supabase';
 
 export default function Certificate() {
   const { id } = useParams();
+  const [certificateData, setCertificateData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  const certificateData = {
-    documentName: 'Proposal Bisnis Q4.pdf',
-    fileType: 'application/pdf',
-    fileSize: '2.4 MB',
-    registeredBy: 'Budi Santoso',
-    registeredDate: '15 Januari 2024',
-    documentHash: 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0',
-    transactionHash: '0x123abc456def789ghi012jkl345mno678pqr901',
-    blockNumber: '42156789',
-    certificateId: 'CERT-20240115-ABC123',
-    blockchainTimestamp: '15 Januari 2024, 10:30:45 UTC',
-  };
+  useEffect(() => {
+    const fetchCertificate = async () => {
+      if (!id) { setNotFound(true); setLoading(false); return; }
+
+      const { data: doc } = await supabase
+        .from('documents')
+        .select('*, profiles!documents_user_id_fkey(full_name)')
+        .eq('certificate_id', id)
+        .maybeSingle();
+
+      if (!doc) {
+        setNotFound(true);
+      } else {
+        setCertificateData({
+          documentName: doc.title || doc.file_name,
+          fileType: doc.file_type,
+          fileSize: doc.file_size,
+          registeredBy: doc.profiles?.full_name || 'Unknown',
+          registeredDate: new Date(doc.registered_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+          documentHash: doc.document_hash,
+          transactionHash: doc.tx_hash,
+          blockNumber: doc.block_number,
+          certificateId: doc.certificate_id,
+          blockchainTimestamp: new Date(doc.registered_at).toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC',
+        });
+      }
+      setLoading(false);
+    };
+    fetchCertificate();
+  }, [id]);
 
   const handlePrint = () => {
     window.print();
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 text-sm">Memuat sertifikat...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (notFound || !certificateData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-black mb-2">{t.certificates.certificateNotFound}</h2>
+          <p className="text-gray-600 mb-6">{t.certificates.certificateDoesNotExist}</p>
+          <a href="/documents" className="bg-black hover:bg-gray-900 text-white font-semibold py-2 px-6 rounded-lg transition">
+            Kembali ke Dokumen
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -28,7 +76,7 @@ export default function Certificate() {
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <a href="/documents" className="text-black hover:text-gray-700 font-semibold">
-            ← Kembali ke Dokumen
+            {'<-'} Kembali ke Dokumen
           </a>
           <button
             onClick={handlePrint}
@@ -127,7 +175,7 @@ export default function Certificate() {
               Sertifikat ini dapat diverifikasi kapan saja dengan mengunggah dokumen asli ke sistem verifikasi kami.
             </p>
             <p className="text-gray-500 text-xs">
-              Dikeluarkan oleh Datacipta Copyright Registry • Didukung oleh Teknologi Blockchain Polygon.
+              Dikeluarkan oleh Datacipta Copyright Registry - Didukung oleh Teknologi Blockchain Polygon.
             </p>
           </div>
         </div>

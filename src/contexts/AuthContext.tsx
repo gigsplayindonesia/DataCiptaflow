@@ -54,14 +54,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    console.log('[v0] AuthContext: initializing, getting session...');
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      console.log('[v0] AuthContext: session result:', session ? 'has session' : 'no session');
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
         const p = await fetchProfile(session.user.id);
         setProfile(p);
       }
+      setLoading(false);
+      console.log('[v0] AuthContext: loading set to false');
+    }).catch((err) => {
+      console.error('[v0] AuthContext: getSession error:', err);
       setLoading(false);
     });
 

@@ -35,8 +35,10 @@ export default function Dashboard() {
 
   // Fetch all dashboard data
   useEffect(() => {
+    if (!profile) return;
+
+    let cancelled = false;
     const fetchData = async () => {
-      if (!profile) return;
       try {
         const [staticRes, dynamicRes, docsRes, txRes] = await Promise.all([
           supabase.from('banners_static').select('*').eq('is_active', true).maybeSingle(),
@@ -45,12 +47,13 @@ export default function Dashboard() {
           supabase.from('transactions').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
         ]);
 
+        if (cancelled) return;
+
         if (staticRes.data) setStaticBanner(staticRes.data);
         if (dynamicRes.data) setDynamicBanners(dynamicRes.data);
         if (docsRes.data) {
           setRecentDocuments(docsRes.data);
           setDocCount(docsRes.data.length);
-          // Count verified docs
           const verified = docsRes.data.filter((d: any) => d.status === 'verified');
           setVerifyCount(verified.length);
         }
@@ -61,15 +64,16 @@ export default function Dashboard() {
           .from('documents')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', profile.id);
-        if (count !== null) setDocCount(count);
+        if (count !== null && !cancelled) setDocCount(count);
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchData();
+    return () => { cancelled = true; };
   }, [profile]);
 
   const handleBannerClick = (url: string, behavior: string) => {

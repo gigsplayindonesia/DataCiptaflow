@@ -54,6 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let initialLoad = true;
+
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
@@ -63,19 +65,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(p);
       }
       setLoading(false);
+      initialLoad = false;
     }).catch(() => {
       setLoading(false);
+      initialLoad = false;
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Listen for auth changes (sign in, sign out, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // On sign in/sign up, set loading true until profile is fetched
+      if (event === 'SIGNED_IN' && !initialLoad) {
+        setLoading(true);
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
+
       if (session?.user) {
         const p = await fetchProfile(session.user.id);
         setProfile(p);
       } else {
         setProfile(null);
+      }
+
+      // After profile is loaded, set loading false
+      if (event === 'SIGNED_IN' && !initialLoad) {
+        setLoading(false);
       }
     });
 

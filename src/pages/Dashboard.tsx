@@ -35,38 +35,44 @@ export default function Dashboard() {
 
   // Fetch all dashboard data
   useEffect(() => {
-    if (!profile) return;
-
     let cancelled = false;
+
     const fetchData = async () => {
       try {
-        const [staticRes, dynamicRes, docsRes, txRes] = await Promise.all([
+        // Fetch banners (public data, no profile needed)
+        const [staticRes, dynamicRes] = await Promise.all([
           supabase.from('banners_static').select('*').eq('is_active', true).maybeSingle(),
           supabase.from('banners_dynamic').select('*').eq('is_active', true).order('display_order', { ascending: true }),
-          supabase.from('documents').select('*').eq('user_id', profile.id).order('registered_at', { ascending: false }).limit(3),
-          supabase.from('transactions').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
         ]);
 
         if (cancelled) return;
-
         if (staticRes.data) setStaticBanner(staticRes.data);
         if (dynamicRes.data) setDynamicBanners(dynamicRes.data);
-        if (docsRes.data) {
-          setRecentDocuments(docsRes.data);
-          setDocCount(docsRes.data.length);
-          const verified = docsRes.data.filter((d: any) => d.status === 'verified');
-          setVerifyCount(verified.length);
-        }
-        if (txRes.data) setRecentActivity(txRes.data);
 
-        // Get total doc count
-        const { count } = await supabase
-          .from('documents')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', profile.id);
-        if (count !== null && !cancelled) setDocCount(count);
+        // Fetch user-specific data if profile is available
+        if (profile) {
+          const [docsRes, txRes] = await Promise.all([
+            supabase.from('documents').select('*').eq('user_id', profile.id).order('registered_at', { ascending: false }).limit(3),
+            supabase.from('transactions').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(3),
+          ]);
+
+          if (cancelled) return;
+
+          if (docsRes.data) {
+            setRecentDocuments(docsRes.data);
+            const verified = docsRes.data.filter((d: any) => d.status === 'verified');
+            setVerifyCount(verified.length);
+          }
+          if (txRes.data) setRecentActivity(txRes.data);
+
+          const { count } = await supabase
+            .from('documents')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', profile.id);
+          if (count !== null && !cancelled) setDocCount(count);
+        }
       } catch (error) {
-        console.error('Error fetching dashboard data:', error);
+        console.error('[v0] Error fetching dashboard data:', error);
       } finally {
         if (!cancelled) setLoading(false);
       }

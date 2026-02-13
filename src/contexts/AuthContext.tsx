@@ -54,43 +54,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    let initialLoad = true;
-
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      console.log('[v0] getSession result:', session ? 'has session' : 'no session');
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
         const p = await fetchProfile(session.user.id);
+        console.log('[v0] initial profile fetch:', p ? 'found' : 'null');
         setProfile(p);
       }
       setLoading(false);
-      initialLoad = false;
-    }).catch(() => {
+    }).catch((err) => {
+      console.error('[v0] getSession error:', err);
       setLoading(false);
-      initialLoad = false;
     });
 
     // Listen for auth changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // On sign in/sign up, set loading true until profile is fetched
-      if (event === 'SIGNED_IN' && !initialLoad) {
-        setLoading(true);
-      }
+      console.log('[v0] onAuthStateChange:', event);
 
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.user) {
         const p = await fetchProfile(session.user.id);
+        console.log('[v0] auth change profile fetch:', p ? 'found' : 'null');
         setProfile(p);
       } else {
         setProfile(null);
-      }
-
-      // After profile is loaded, set loading false
-      if (event === 'SIGNED_IN' && !initialLoad) {
-        setLoading(false);
       }
     });
 
@@ -98,9 +90,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       return { error: error.message };
+    }
+    // Immediately fetch and set profile so it's ready before navigation
+    if (data.user) {
+      setUser(data.user);
+      setSession(data.session);
+      const p = await fetchProfile(data.user.id);
+      console.log('[v0] signIn: profile fetched:', p ? 'found' : 'null');
+      setProfile(p);
     }
     return { error: null };
   };

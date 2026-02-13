@@ -54,10 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    console.log('[v0] AuthContext: initializing, getting session...');
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('[v0] AuthContext: session result:', session ? 'has session' : 'no session');
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -65,9 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(p);
       }
       setLoading(false);
-      console.log('[v0] AuthContext: loading set to false');
-    }).catch((err) => {
-      console.error('[v0] AuthContext: getSession error:', err);
+    }).catch(() => {
       setLoading(false);
     });
 
@@ -95,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, fullName: string, username: string) => {
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -110,18 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: error.message };
     }
 
-    // The trigger will create the profile, but we manually update username/full_name
-    // since the trigger uses raw_user_meta_data
-    if (data.user) {
-      // Wait a moment for the trigger to fire
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      await supabase
-        .from('profiles')
-        .update({ full_name: fullName, username: username })
-        .eq('id', data.user.id);
-    }
-
+    // The database trigger (handle_new_user) automatically creates the profile
+    // using the metadata passed above, so no manual insert/update is needed.
     return { error: null };
   };
 

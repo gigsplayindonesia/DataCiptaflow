@@ -54,36 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('[v0] getSession result:', session ? 'has session' : 'no session');
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const p = await fetchProfile(session.user.id);
-        console.log('[v0] initial profile fetch:', p ? 'found' : 'null');
-        setProfile(p);
-      }
-      setLoading(false);
-    }).catch((err) => {
-      console.error('[v0] getSession error:', err);
-      setLoading(false);
-    });
-
-    // Listen for auth changes (sign in, sign out, token refresh)
+    // Use onAuthStateChange as the single source of truth.
+    // It fires INITIAL_SESSION immediately, then SIGNED_IN / SIGNED_OUT later.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('[v0] onAuthStateChange:', event);
-
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.user) {
         const p = await fetchProfile(session.user.id);
-        console.log('[v0] auth change profile fetch:', p ? 'found' : 'null');
         setProfile(p);
       } else {
         setProfile(null);
       }
+
+      // Always mark loading as done after the first event
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -99,7 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       setSession(data.session);
       const p = await fetchProfile(data.user.id);
-      console.log('[v0] signIn: profile fetched:', p ? 'found' : 'null');
       setProfile(p);
     }
     return { error: null };

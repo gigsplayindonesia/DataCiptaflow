@@ -16,28 +16,35 @@ export default function Transactions() {
   const [totalSpent, setTotalSpent] = useState(0);
 
   useEffect(() => {
+    if (!profile) return;
+    let cancelled = false;
     const fetchTransactions = async () => {
-      if (!profile) return;
-      const { data } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false });
+      try {
+        const { data } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false });
 
-      if (data) {
-        setTransactions(data);
-        let earned = 0;
-        let spent = 0;
-        data.forEach((tx: any) => {
-          if (tx.amount > 0) earned += tx.amount;
-          else spent += Math.abs(tx.amount);
-        });
-        setTotalEarned(earned);
-        setTotalSpent(spent);
+        if (data && !cancelled) {
+          setTransactions(data);
+          let earned = 0;
+          let spent = 0;
+          data.forEach((tx: any) => {
+            if (tx.amount > 0) earned += tx.amount;
+            else spent += Math.abs(tx.amount);
+          });
+          setTotalEarned(earned);
+          setTotalSpent(spent);
+        }
+      } catch (error) {
+        console.error('Error fetching transactions:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     };
     fetchTransactions();
+    return () => { cancelled = true; };
   }, [profile]);
 
   const getTypeLabel = (type: string) => {

@@ -14,18 +14,24 @@ export default function MyDocuments() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!profile) return;
+    let cancelled = false;
     const fetchDocuments = async () => {
-      if (!profile) return;
-      const { data } = await supabase
-        .from('documents')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('registered_at', { ascending: false });
-
-      if (data) setDocuments(data);
-      setLoading(false);
+      try {
+        const { data } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('registered_at', { ascending: false });
+        if (data && !cancelled) setDocuments(data);
+      } catch (error) {
+        console.error('Error fetching documents:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
     fetchDocuments();
+    return () => { cancelled = true; };
   }, [profile]);
 
   return (

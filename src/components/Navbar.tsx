@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Menu, X, LogOut, Coins, ChevronDown, Edit, Bell } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { t } from '../lib/translations';
 import { useAuth } from '../contexts/AuthContext';
 import logo from '../assets/logo.svg';
